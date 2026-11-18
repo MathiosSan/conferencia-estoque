@@ -101,10 +101,93 @@ function render(){
  $('products').innerHTML=shown.length?shown.map(x=>{const over=x.scanned>x.expected,complete=x.scanned===x.expected,pct=Math.min(100,x.scanned/x.expected*100);return `<tr><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${x.expected}</td><td>${x.scanned}</td><td><div class="progress"><i style="width:${pct}%"></i></div></td><td class="status ${over?'over':complete?'done':'pending'}">${over?'Excedido':complete?'Conferido':x.scanned?'Em andamento':'Pendente'}</td></tr>`}).join(''):'<tr><td colspan="6" class="small">Nenhum produto neste filtro.</td></tr>'
 }
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function reportRows(){return[['Código','Produto','Quantidade esperada','Quantidade conferida','Diferença','Status'],...items.map(x=>[x.code,x.name,x.expected,x.scanned,x.expected-x.scanned,x.scanned===x.expected?'Conferido':x.scanned>x.expected?'Excedido':'Pendente'])]}
-$('export').onclick=()=>{if(!items.length){show('Importe a planilha antes de exportar.','warn');return}if(!window.XLSX){show('Biblioteca Excel indisponível. Verifique a internet.','bad');return}const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(reportRows()),'Conferencia');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Data/hora',new Date().toLocaleString('pt-BR')],['Unidades esperadas',items.reduce((a,x)=>a+x.expected,0)],['Unidades conferidas',items.reduce((a,x)=>a+x.scanned,0)],['Códigos não encontrados',unknownCount]]),'Resumo');XLSX.writeFile(wb,'relatorio_conferencia.xlsx')};
-$('exportCsv').onclick=()=>{if(!items.length){show('Importe a planilha antes de exportar.','warn');return}const csv=reportRows().map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download='relatorio_conferencia.csv';a.click();URL.revokeObjectURL(a.href)};
-$('clear').onclick=()=>{if(!items.length)return;if(confirm('Apagar todas as bipagens desta conferência? A planilha importada será mantida.')){items.forEach(x=>x.scanned=0);history=[];hideNotice();render();$('barcode').focus()}};
-render();
+function importRows(rows,name){
+ if(!rows.length){
+  show('A planilha está vazia.','bad');
+  return;
+ }
+
+ // Detecta o formato de transferência entre filiais
+ const headers=rows.slice(0,15).flat().map(norm);
+ const transferFormat=
+  headers.includes('codigo') &&
+  headers.includes('nome') &&
+  headers.includes('qtde');
+
+ let parsed=[];
+
+ if(transferFormat){
+  rows.forEach((r,i)=>{
+   const c=code(r[1]);
+   const d=clean(r[5]);
+   const q=Number(String(r[16]??'').replace(',','.'));
+
+   if(c && d && Number.isFinite(q) && q>0){
+    parsed.push({
+     id:i+1,
+     code:c,
+     name:d,
+     expected:q,
+     scanned:0
+    });
+   }
+  });
+ }
+
+ // Mantém compatibilidade com os formatos anteriores
+ if(!parsed.length){
+  let found=null;
+
+  for(let r=0;r<Math.min(rows.length,10);r++){
+   const h=(rows[r]||[]).map(clean);
+   const ci=headerIndex(h,['codigo','ean','barra','sku']);
+   const di=headerIndex(h,['descricao','produto','nome']);
+   const qi=headerIndex(h,['qtde','qtd','quantidade']);
+
+   if(ci>=0&&di>=0&&qi>=0){
+    found={row:r,ci,di,qi};
+    break;
+   }
+  }
+
+  if(!found){
+   show('Não encontrei os cabeçalhos da planilha.','bad');
+   return;
+  }
+
+  rows.slice(found.row+1).forEach((r,i)=>{
+   const c=code(r[found.ci]);
+   const d=clean(r[found.di]);
+   const q=Number(String(r[found.qi]??'').replace(',','.'));
+
+   if(c&&d&&Number.isFinite(q)&&q>0){
+    parsed.push({
+     id:i+1,
+     code:c,
+     name:d,
+     expected:q,
+     scanned:0
+    });
+   }
+  });
+ }
+
+ if(!parsed.length){
+  show('Não encontrei produtos válidos na planilha.','bad');
+  return;
+ }
+
+ items=parsed;
+ history=[];
+ unknownCount=0;
+ filter='all';
+
+ $('importMsg').textContent=
+  ${name}: ${items.length} linhas importadas, ${items.reduce((a,x)=>a+x.expected,0)} unidades esperadas.;
+
+ show('Planilha importada! Pode começar a bipar.','good');
+ render();
+ $('barcode').focus();
+}
 </script>
 </body></html>
