@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conferência de estoque</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root{font-family:Arial,Helvetica,sans-serif;color:#17212b;background:#f4f6f8}
+*{box-sizing:border-box}body{margin:0}header{background:#172b3a;color:#fff;padding:20px 24px}header h1{margin:0 0 5px;font-size:23px}header p{margin:0;color:#cbd5df;font-size:14px}
+main{max-width:1200px;margin:22px auto;padding:0 16px}.panel{background:#fff;border:1px solid #dce2e8;border-radius:12px;padding:17px;margin-bottom:16px;box-shadow:0 2px 8px #172b3a0a}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.row>*{flex:1}button,.filebtn{border:0;border-radius:8px;padding:11px 14px;font-weight:700;cursor:pointer;background:#1769aa;color:white}
+button.secondary,.filebtn.secondary{background:#e8eef3;color:#203342}button.danger{background:#b42318;color:white}button:disabled{opacity:.45;cursor:not-allowed}
+input[type=text],input[type=search],input[type=number]{width:100%;padding:13px;border:1px solid #bac5cf;border-radius:8px;font-size:17px}input[type=file]{display:none}.filebtn{display:inline-block;text-align:center}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.stat{background:#f5f8fa;border-radius:9px;padding:13px}.stat strong{display:block;font-size:24px;margin-top:5px}.stat span{font-size:12px;color:#52616d}
+.scanbox{background:#edf6ff;border:1px solid #b8d8f4}.scanbox label{font-weight:700;display:block;margin-bottom:8px}.notice{padding:11px 13px;border-radius:8px;margin-top:10px;font-weight:700;display:none}
+.notice.good{display:block;background:#e8f7ed;color:#176b36}.notice.warn{display:block;background:#fff4df;color:#855600}.notice.bad{display:block;background:#fdebea;color:#a32118}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.filters button{padding:8px 12px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #e7ebef}th{color:#52616d;background:#f7f9fa;position:sticky;top:0}
+.tablewrap{overflow:auto;max-height:520px}.progress{height:7px;background:#e6ebef;border-radius:9px;overflow:hidden;min-width:70px}.progress i{display:block;height:100%;background:#199653}.status{font-weight:700}.done{color:#168044}.pending{color:#9a6500}.over{color:#b42318}
+.small{font-size:12px;color:#63717c}.qtybox{max-width:150px;flex:0 0 150px}.qtybox label{display:block;font-size:13px;font-weight:700;margin-bottom:6px}
+@media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}header{padding:17px}.row>*{min-width:100%}.qtybox{max-width:none;flex:1}table{min-width:760px}}
+</style>
+</head>
+<body>
+<header><h1>Conferência de estoque</h1><p>Importe a planilha, bipе os produtos e acompanhe as divergências.</p></header>
+<main>
+<section class="panel">
+ <div class="row"><div><strong>1. Importar planilha da loja</strong><p class="small">Aceita .XLS, .XLSX e .CSV. Reconhece a planilha original (Código, Nome, Qtde) e a versão simplificada.</p></div>
+ <label class="filebtn" for="file">Escolher planilha</label><input id="file" type="file" accept=".xls,.xlsx,.csv"><button id="sample" class="secondary">Carregar exemplo</button></div>
+ <div id="importMsg" class="small" style="margin-top:10px">Nenhuma planilha carregada.</div>
+</section>
+<section class="panel scanbox">
+ <label for="barcode">2. Bipar código de barras</label>
+ <div class="row"><input id="barcode" type="text" inputmode="numeric" autocomplete="off" placeholder="Clique aqui e leia o código no leitor USB">
+ <div class="qtybox"><label for="scanQty">Quantidade por leitura</label><input id="scanQty" type="number" min="1" step="1" value="1"></div>
+ <button id="undo" class="secondary" disabled>Desfazer última bipagem</button></div>
+ <div class="row" style="margin-top:10px"><button id="soundToggle" class="secondary" aria-pressed="true">Som: ligado</button><span class="small">Use quantidade 1 para bipar normalmente ou informe várias unidades antes de ler o código.</span></div>
+ <div id="notice" class="notice" role="status"></div>
+ <p class="small">O leitor funciona como teclado: ao bipar, ele envia o código e Enter. Também é possível digitar e pressionar Enter.</p>
+</section>
+<section class="panel">
+ <strong>Resumo da conferência</strong>
+ <div class="stats" style="margin-top:12px"><div class="stat"><span>Linhas de produtos</span><strong id="sLines">0</strong></div><div class="stat"><span>Unidades esperadas</span><strong id="sExpected">0</strong></div><div class="stat"><span>Unidades conferidas</span><strong id="sScanned">0</strong></div><div class="stat"><span>Linhas concluídas</span><strong id="sDone">0</strong></div></div>
+ <div class="row" style="margin-top:14px"><button id="export">Exportar relatório Excel</button><button id="exportCsv" class="secondary">Exportar CSV</button><button id="clear" class="danger">Limpar conferência</button></div>
+</section>
+<section class="panel">
+ <div class="row"><div><strong>3. Produtos da planilha</strong><p class="small">Códigos duplicados continuam em linhas separadas. A leitura vai para a primeira linha ainda pendente.</p></div><input id="search" type="search" placeholder="Buscar por código ou descrição"></div>
+ <div class="filters"><button class="secondary" data-filter="all">Todos</button><button class="secondary" data-filter="pending">Pendentes</button><button class="secondary" data-filter="done">Conferidos</button><button class="secondary" data-filter="over">Excedidos</button></div>
+ <div class="tablewrap"><table><thead><tr><th>Código</th><th>Produto</th><th>Esperado</th><th>Conferido</th><th>Progresso</th><th>Status</th></tr></thead><tbody id="products"><tr><td colspan="6" class="small">Importe uma planilha para começar.</td></tr></tbody></table></div>
+</section>
+<p class="small">Observação: este arquivo roda no navegador e não exige instalação. A biblioteca de leitura do Excel é carregada pela internet. Os dados ficam nesta aba enquanto ela estiver aberta; exporte o relatório antes de fechar.</p>
+</main>
+<script>
+let items=[],history=[],filter='all',unknownCount=0,soundEnabled=true,audioCtx=null;
+const $=id=>document.getElementById(id),clean=v=>String(v??'').trim();
+function norm(v){return clean(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()}
+function code(v){if(v===null||v===undefined)return '';if(typeof v==='number')return String(Math.trunc(v));return clean(v).replace(/\.0$/,'')}
+function normalizedCode(v){return code(v).replace(/^0+(?=\d)/,'')}
+function show(msg,type='good'){const n=$('notice');n.textContent=msg;n.className='notice '+type}
+function hideNotice(){$('notice').className='notice'}
+function headerIndex(headers,terms){return headers.findIndex(h=>terms.some(t=>norm(h).includes(t)))}
+function importRows(rows,name){
+ if(!rows.length){show('A planilha está vazia.','bad');return}
+ let found=null;
+ for(let r=0;r<Math.min(rows.length,10);r++){
+  const h=(rows[r]||[]).map(clean),ci=headerIndex(h,['codigo','ean','barra','sku']),di=headerIndex(h,['descricao','produto','nome']),qi=headerIndex(h,['qtde','qtd','quantidade']);
+  if(ci>=0&&di>=0&&qi>=0){found={row:r,ci,di,qi};break}
+ }
+ if(!found){show('Não encontrei os cabeçalhos. Preciso de Código, Nome/Descrição e Qtde/Qtd/Quantidade.','bad');return}
+ const parsed=[];
+ rows.slice(found.row+1).forEach((r,i)=>{const c=code(r[found.ci]),d=clean(r[found.di]),q=Number(String(r[found.qi]??'').replace(',','.'));if(c&&d&&Number.isFinite(q)&&q>0)parsed.push({id:i+1,code:c,name:d,expected:q,scanned:0})});
+ if(!parsed.length){show('Não encontrei linhas válidas com código, descrição e quantidade maior que zero.','bad');return}
+ items=parsed;history=[];unknownCount=0;filter='all';
+ $('importMsg').textContent=`${name}: ${items.length} linhas importadas, ${items.reduce((a,x)=>a+x.expected,0)} unidades esperadas.`;
+ show('Planilha importada! Pode começar a bipar.','good');render();$('barcode').focus()
+}
+$('file').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{if(!window.XLSX)throw new Error('A biblioteca do Excel não carregou. Verifique a internet e recarregue a página.');const data=await f.arrayBuffer(),wb=XLSX.read(data,{type:'array',raw:true}),ws=wb.Sheets[wb.SheetNames[0]];importRows(XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:true}),f.name)}catch(err){show('Erro ao abrir planilha: '+err.message,'bad')}e.target.value=''});
+$('sample').onclick=()=>importRows([['CÓDIGO','NOME','DE','PARA','QTDE','COR','VENDA','CONFIRMADO'],['28637','LINHA MONO DOURADO PREMIUM 100M 0,35MM',307,700,19,'A',3.90,'S'],['45836','LINHA FASTLINE ONIX 0,405MM 500M NEW AZUL',307,700,5,'A',46,'S']],'Exemplo da planilha original');
+function playTone(freq=880,duration=.12,delay=0){if(!soundEnabled)return;try{const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;audioCtx=audioCtx||new AC();if(audioCtx.state==='suspended')audioCtx.resume();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sine';o.frequency.value=freq;g.gain.setValueAtTime(.0001,audioCtx.currentTime+delay);g.gain.exponentialRampToValueAtTime(.16,audioCtx.currentTime+delay+.012);g.gain.exponentialRampToValueAtTime(.0001,audioCtx.currentTime+delay+duration);o.connect(g);g.connect(audioCtx.destination);o.start(audioCtx.currentTime+delay);o.stop(audioCtx.currentTime+delay+duration+.02)}catch(e){}}
+function soundGood(){playTone(880,.11)}function soundError(){playTone(330,.13);playTone(260,.15,.19)}
+$('soundToggle').onclick=()=>{soundEnabled=!soundEnabled;$('soundToggle').textContent='Som: '+(soundEnabled?'ligado':'desligado');$('soundToggle').setAttribute('aria-pressed',String(soundEnabled));if(soundEnabled)soundGood()};
+function scan(raw){
+ const c=code(raw);if(!c)return;if(!items.length){show('Importe a planilha antes de bipar.','warn');soundError();return}
+ const amount=Number($('scanQty').value);if(!Number.isInteger(amount)||amount<1){show('Informe uma quantidade inteira maior que zero.','warn');soundError();$('scanQty').focus();return}
+ let candidates=items.filter(x=>x.code===c),fallback=false;
+ if(!candidates.length){const n=normalizedCode(c);candidates=items.filter(x=>normalizedCode(x.code)===n);fallback=candidates.length>0}
+ if(!candidates.length){unknownCount++;show(`Código ${c} não encontrado na planilha.`,'bad');soundError();return}
+ let left=amount,changes=[];
+ for(const t of candidates){const available=Math.max(0,t.expected-t.scanned);if(!available)continue;const add=Math.min(available,left);if(add){t.scanned+=add;left-=add;changes.push({id:t.id,qty:add})}if(!left)break}
+ if(left){changes.forEach(ch=>{const t=items.find(x=>x.id===ch.id);if(t)t.scanned-=ch.qty});show(`Quantidade excedida para o código ${c}. Há menos unidades pendentes do que ${amount}. Nenhuma unidade foi lançada.`,'bad');soundError();render();return}
+ history.push({changes,code:c,qty:amount});const total=candidates.reduce((a,x)=>a+x.scanned,0),expected=candidates.reduce((a,x)=>a+x.expected,0);
+ show(`${amount} unidade(s) lançada(s) para ${c}${fallback?' (localizado sem os zeros à esquerda)':''}. Total do código: ${total}/${expected}.`,'good');soundGood();render()
+}
+$('barcode').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();scan($('barcode').value);$('barcode').value=''}});
+$('undo').onclick=()=>{const last=history.pop();if(!last)return;last.changes.forEach(ch=>{const t=items.find(x=>x.id===ch.id);if(t)t.scanned=Math.max(0,t.scanned-ch.qty)});show(`Último lançamento desfeito: ${last.qty} unidade(s) do código ${last.code}.`,'warn');render();$('barcode').focus()};
+$('search').addEventListener('input',render);document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;render()});
+function render(){
+ const expected=items.reduce((a,x)=>a+x.expected,0),scanned=items.reduce((a,x)=>a+x.scanned,0),done=items.filter(x=>x.scanned>=x.expected).length;
+ $('sLines').textContent=items.length;$('sExpected').textContent=expected;$('sScanned').textContent=scanned;$('sDone').textContent=done;$('undo').disabled=!history.length;
+ const q=norm($('search').value),shown=items.filter(x=>{const complete=x.scanned>=x.expected;return(filter==='all'||filter==='done'&&complete||filter==='pending'&&!complete||filter==='over'&&x.scanned>x.expected)&&(!q||norm(x.code+' '+x.name).includes(q))});
+ $('products').innerHTML=shown.length?shown.map(x=>{const over=x.scanned>x.expected,complete=x.scanned===x.expected,pct=Math.min(100,x.scanned/x.expected*100);return `<tr><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${x.expected}</td><td>${x.scanned}</td><td><div class="progress"><i style="width:${pct}%"></i></div></td><td class="status ${over?'over':complete?'done':'pending'}">${over?'Excedido':complete?'Conferido':x.scanned?'Em andamento':'Pendente'}</td></tr>`}).join(''):'<tr><td colspan="6" class="small">Nenhum produto neste filtro.</td></tr>'
+}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function reportRows(){return[['Código','Produto','Quantidade esperada','Quantidade conferida','Diferença','Status'],...items.map(x=>[x.code,x.name,x.expected,x.scanned,x.expected-x.scanned,x.scanned===x.expected?'Conferido':x.scanned>x.expected?'Excedido':'Pendente'])]}
+$('export').onclick=()=>{if(!items.length){show('Importe a planilha antes de exportar.','warn');return}if(!window.XLSX){show('Biblioteca Excel indisponível. Verifique a internet.','bad');return}const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(reportRows()),'Conferencia');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Data/hora',new Date().toLocaleString('pt-BR')],['Unidades esperadas',items.reduce((a,x)=>a+x.expected,0)],['Unidades conferidas',items.reduce((a,x)=>a+x.scanned,0)],['Códigos não encontrados',unknownCount]]),'Resumo');XLSX.writeFile(wb,'relatorio_conferencia.xlsx')};
+$('exportCsv').onclick=()=>{if(!items.length){show('Importe a planilha antes de exportar.','warn');return}const csv=reportRows().map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download='relatorio_conferencia.csv';a.click();URL.revokeObjectURL(a.href)};
+$('clear').onclick=()=>{if(!items.length)return;if(confirm('Apagar todas as bipagens desta conferência? A planilha importada será mantida.')){items.forEach(x=>x.scanned=0);history=[];hideNotice();render();$('barcode').focus()}};
+render();
+</script>
+</body></html>
